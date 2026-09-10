@@ -1,0 +1,36 @@
+services:
+  - type: worker
+    name: zim-job-bot
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install
+    startCommand: node src/index.js
+    autoDeployTrigger: commit
+    disk:
+      name: job-bot-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: EMAIL_SERVICE
+        value: gmail
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_APP_PASSWORD
+        sync: false
+      - key: WHATSAPP_OWNER_NUMBER
+        sync: false
+      - key: PROFILE_MD_BASE64
+        sync: false
+      - key: CV_TEMPLATE_MD_BASE64
+        sync: false
+      - key: SCRAPE_INTERVAL_MINUTES
+        value: "60"
+      - key: MATCH_THRESHOLD
+        value: "7"
+      - key: MAX_PAGES_PER_SOURCE
+        value: "2"
+      - key: SCRAPER_USER_AGENT
+        value: "Mozilla/5.0 (compatible; PersonalJobBot/1.0)"
