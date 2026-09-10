@@ -20,8 +20,8 @@ const { startScheduler } = require('./scheduler');
 const notifier = require('./notifier');
 
 async function main() {
-  if (!config.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY is not set. Set it in .env (local) or the Render environment variables.');
+  if (config.GEMINI_API_KEYS.length === 0) {
+    console.error('GEMINI_API_KEYS is not set. Set it in .env (local) or the Render environment variables.');
     process.exit(1);
   }
   if (!config.WHATSAPP_OWNER_NUMBER) {

@@ -1,8 +1,9 @@
 {
   "name": "zim-job-bot",
   "version": "1.0.0",
-  "description": "Personal job-search bot: scrapes Zimbabwean job boards, matches postings against your profile with Claude, drafts a tailored CV/cover letter/email, and lets you review, chat with, and control it over WhatsApp.",
+  "description": "Personal job-search bot: scrapes Zimbabwean job boards, matches postings against your profile with Gemini, drafts a tailored CV/cover letter/email, and lets you review, chat with, and control it over WhatsApp.",
   "main": "src/index.js",
+  "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "start": "node src/index.js"
@@ -11,7 +12,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
     "@google/genai": "^2.21.0",
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^6.7.9",

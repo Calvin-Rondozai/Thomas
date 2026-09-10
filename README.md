@@ -2,7 +2,7 @@
 
 A personal job-search assistant that:
 1. Scrapes Zimbabwean job boards (VacancyMail, JobsZimbabwe, iHarare Jobs, ApplyNOW).
-2. Scores each posting against your profile using Claude, and drops anything that
+2. Scores each posting against your profile using Gemini, and drops anything that
    does not fit.
 3. Drafts a tailored CV, cover letter, and application email for good matches (never
    inventing facts beyond what is in your profile).
@@ -22,7 +22,7 @@ Render Background Worker (always-on, persistent disk at /data)
 ├─ WhatsApp (Baileys, unofficial/free) - your two-way chat interface
 ├─ node-cron loop - scrapes every SCRAPE_INTERVAL_MINUTES
 │   ├─ scrapers/*.js - cheerio scraping of each job board
-│   ├─ ai/claude.js - cheap pre-filter, then detailed score + CV/cover letter/email draft
+│   ├─ ai/gemini.js - cheap pre-filter, then detailed score + CV/cover letter/email draft (rotates across pooled API keys)
 │   └─ notifier.js - pushes updates out to WhatsApp
 ├─ documents/pdf.js - renders the drafted CV/cover letter to PDF
 ├─ email/mailer.js - sends the application (Gmail SMTP)
@@ -56,12 +56,12 @@ Render Background Worker (always-on, persistent disk at /data)
 ## Prerequisites
 
 - Node.js 18+ (only needed for local testing - Render provides it in production).
-- An Anthropic API key from https://console.anthropic.com/ (Settings, API Keys). Note
-  this is separate billing from a Claude Pro subscription at claude.ai - Pro does not
-  carry over into API credits, so you'll need to add billing/credit under Settings,
-  Billing on the console site. It's pay-per-token; typically a few dollars a month at
-  this bot's volume, thanks to the cheap pre-filter step in front of the expensive
-  drafting step.
+- A Gemini API key from https://aistudio.google.com/apikey (this is separate from a
+  Gemini/Google One consumer subscription - it is its own pay-as-you-go API billing,
+  though it has a usable free tier). You can list more than one key in
+  GEMINI_API_KEYS (comma-separated) - the bot automatically rotates to the next key
+  when one hits its quota, and only messages you on WhatsApp once every key in the
+  list is exhausted, including an estimate of when the quota resets.
 - A Gmail account with an App Password (Google Account, Security, 2-Step
   Verification, App Passwords) - this is what the bot sends applications from.
 - A second, dedicated phone number for the bot's own WhatsApp account (a spare SIM,
@@ -125,7 +125,7 @@ This repo includes a render.yaml blueprint.
    creates a Background Worker on the Starter plan with a 1GB persistent disk mounted
    at /data.
 3. Fill in the environment variables it asks for (marked sync: false in render.yaml):
-   ANTHROPIC_API_KEY, EMAIL_USER, EMAIL_APP_PASSWORD, WHATSAPP_OWNER_NUMBER.
+   GEMINI_API_KEYS, EMAIL_USER, EMAIL_APP_PASSWORD, WHATSAPP_OWNER_NUMBER.
 4. Base64-encode your profile and CV template so Render can write them onto the
    persistent disk on first boot, instead of committing them to git:
 
@@ -167,14 +167,14 @@ Once running, message it in plain English from your personal number, for example
 - "scrape now" or "check now" - run an immediate cycle instead of waiting
 - "turn auto apply on" or "turn auto apply off"
 
-It is a real Claude conversation with tools behind it, not a fixed command list, so
+It is a real Gemini conversation with tools behind it, not a fixed command list, so
 phrasing does not have to be exact.
 
 ## Configuration (env vars)
 
 | Variable | Purpose | Default |
 |---|---|---|
-| ANTHROPIC_API_KEY | Claude API key | required |
+| GEMINI_API_KEYS | Gemini API key(s), comma-separated | required |
 | EMAIL_SERVICE / EMAIL_USER / EMAIL_APP_PASSWORD | sends applications | required |
 | WHATSAPP_OWNER_NUMBER | your personal number, digits only, no plus sign | required |
 | SCRAPE_INTERVAL_MINUTES | how often to scrape all sources | 60 |
@@ -185,9 +185,10 @@ phrasing does not have to be exact.
 ## Costs (realistic estimate)
 
 - Render Starter worker plus 1GB disk: about $8/month.
-- Claude API: pay-per-use, scales with how many new postings show up and how many get
-  fully drafted; a few dollars a month at typical Zimbabwe job-board volumes, thanks
-  to the cheap pre-filter step in front of the expensive drafting step.
+- Gemini API: pay-per-use, scales with how many new postings show up and how many get
+  fully drafted; the cheap pre-filter step in front of the expensive drafting step
+  keeps this low, and pooling a few free-tier keys in GEMINI_API_KEYS can cover most
+  or all of typical usage at this bot's volume.
 - WhatsApp (Baileys) and Gmail SMTP: free.
 
 ## Extending it
@@ -197,3 +198,7 @@ phrasing does not have to be exact.
 - Everything the bot can do lives in src/whatsapp/tools.js as a small list of named
   tools - add a new one there and describe it in TOOL_DEFS to give the chat assistant
   a new capability.
+
+## License
+
+Apache License 2.0 - see LICENSE.

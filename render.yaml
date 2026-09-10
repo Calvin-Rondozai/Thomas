@@ -12,7 +12,7 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEYS
         sync: false
       - key: EMAIL_SERVICE
         value: gmail

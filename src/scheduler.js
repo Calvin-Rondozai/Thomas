@@ -4,7 +4,7 @@ const db = require('./db');
 const notifier = require('./notifier');
 const { scrapeAll } = require('./scrapers');
 const { fetchDetail } = require('./scrapers/detail');
-const { preFilterJobs, matchJobDetailed, generateApplication } = require('./ai/claude');
+const { preFilterJobs, matchJobDetailed, generateApplication } = require('./ai/gemini');
 const { loadProfileText, loadProfileSummary, loadCvTemplateText } = require('./profile/loadProfile');
 const { makeJobId } = require('./utils');
 
@@ -32,7 +32,15 @@ async function runScrapeCycle() {
   try {
     const { jobs, summary } = await scrapeAll({ maxPages: config.MAX_PAGES_PER_SOURCE });
 
-    const newJobs = jobs.map((j) => ({ ...j, id: makeJobId(j.url) })).filter((j) => !db.getJob(j.id));
+    // Process a posting if it's genuinely new, or if a prior run saw it but never
+    // reached a real verdict (a transient API error left it stuck at 'seen'/'error') -
+    // otherwise a temporary outage would silently drop that job forever.
+    const newJobs = jobs
+      .map((j) => ({ ...j, id: makeJobId(j.url) }))
+      .filter((j) => {
+        const existing = db.getJob(j.id);
+        return !existing || existing.status === 'seen' || existing.status === 'error';
+      });
 
     for (const job of newJobs) {
       db.upsertJob({ ...job, status: 'seen' });
@@ -92,6 +100,9 @@ async function runScrapeCycle() {
         db.upsertJob(job);
       } catch (err) {
         console.error(`[scheduler] failed processing job ${job.url}:`, err.message);
+        job.status = 'error';
+        job.lastError = err.message;
+        db.upsertJob(job);
       }
     }
 

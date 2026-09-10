@@ -7,3 +7,10 @@ data/db.json
 data/wa_auth/
 data/profile.md
 data/cv_template.md
+
+# raw API keys the user dropped in - never commit these
+keys
+keys.txt
+
+# scratch/local test scripts that may contain a hardcoded key - never commit these
+test.py

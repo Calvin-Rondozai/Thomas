@@ -21,7 +21,12 @@ const DATA_DIR = process.env.DATA_DIR || pickDataDir();
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 module.exports = {
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  // Comma or newline separated - supports pooling several keys and rotating between
+  // them when one hits its quota (see src/ai/gemini.js).
+  GEMINI_API_KEYS: (process.env.GEMINI_API_KEYS || '')
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   EMAIL_SERVICE: process.env.EMAIL_SERVICE || 'gmail',
   EMAIL_USER: process.env.EMAIL_USER,
