@@ -10,6 +10,12 @@ const { makeJobId } = require('./utils');
 
 let running = false;
 
+// At a short SCRAPE_INTERVAL_MINUTES, a message on every single cycle would be spam
+// when nothing new happened - so the "quiet cycle" notice is throttled. A real match
+// is never throttled - that goes out immediately every time, no matter how often the
+// bot is scraping.
+const QUIET_CYCLE_NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
+
 function formatSummary(summary) {
   return Object.entries(summary)
     .map(([s, v]) => `• ${s}: ${v.count} listing(s)${v.error ? ` (error: ${v.error})` : ''}`)
@@ -47,7 +53,11 @@ async function runScrapeCycle() {
     }
 
     if (newJobs.length === 0) {
-      notifier.emit('notify', `🔎 Scrape complete. No new postings since last run.\n${formatSummary(summary)}`);
+      const lastQuietNotify = db.getSetting('lastQuietCycleNotifiedAt');
+      if (!lastQuietNotify || Date.now() - new Date(lastQuietNotify).getTime() >= QUIET_CYCLE_NOTIFY_COOLDOWN_MS) {
+        notifier.emit('notify', `🔎 Still watching - no new postings since last check.\n${formatSummary(summary)}`);
+        db.setSetting('lastQuietCycleNotifiedAt', new Date().toISOString());
+      }
       db.setSetting('lastRunAt', new Date().toISOString());
       return;
     }

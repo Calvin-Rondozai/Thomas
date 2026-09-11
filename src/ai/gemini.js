@@ -197,7 +197,7 @@ ${profileSummary}
 Postings (index, source, title, location, snippet):
 ${listing}
 
-Return ONLY a JSON array of the integer indexes of postings that are plausibly relevant to this candidate's background, skills, and career level. Be moderately inclusive - when in doubt, include it, since a more careful check happens later. Example: [0,2,5]. If none are relevant, return [].`;
+Cast a wide net - the candidate wants to be considered for anything related to their Computer Science / ICT background, not just an exact title match, and does not want stated years-of-experience requirements to exclude a posting. Return ONLY a JSON array of the integer indexes of postings that are plausibly relevant to this candidate's field/degree/skills. Be inclusive - when in doubt, include it, since a more careful check happens later. Example: [0,2,5]. If none are relevant at all, return [].`;
 
   const res = await generateContent({ model: FAST_MODEL, contents: prompt });
 
@@ -226,7 +226,7 @@ Source: ${job.source} (${job.url})
 Full description:
 ${job.fullDescription || job.snippet || '(no description available)'}
 
-Score how well this candidate matches this specific posting from 0 to 10 (10 = excellent match) considering their actual skills, experience level, and stated preferences. Respond ONLY with JSON: {"score": <number>, "reasoning": "<2-3 sentence explanation>"}`;
+Score how well this candidate matches this specific posting from 0 to 10 (10 = excellent match), based on their field, degree, and skills fit. Per the candidate's own stated preference: do NOT reduce the score for a stated years-of-experience requirement being higher than what the candidate has - ignore experience-year requirements entirely and score purely on whether the role/field/degree is a good fit for someone from a Computer Science background. If the posting requires, prefers, or is clearly suited to a Computer Science/IT/related degree, that alone should score at least moderately well even if the exact job title differs from the candidate's usual target roles. Respond ONLY with JSON: {"score": <number>, "reasoning": "<2-3 sentence explanation>"}`;
 
   const res = await generateContent({ model: SMART_MODEL, contents: prompt });
   return extractJson(textOf(res));

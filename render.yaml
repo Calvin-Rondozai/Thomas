@@ -29,7 +29,7 @@ services:
       - key: CV_TEMPLATE_MD_BASE64
         sync: false
       - key: SCRAPE_INTERVAL_MINUTES
-        value: "60"
+        value: "30"
       - key: MATCH_THRESHOLD
         value: "7"
       - key: MAX_PAGES_PER_SOURCE

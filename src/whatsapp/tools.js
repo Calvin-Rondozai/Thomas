@@ -52,6 +52,14 @@ const TOOL_DEFS = [
     description: 'Trigger an immediate scrape-and-match cycle instead of waiting for the next scheduled run. Runs in the background; results follow as separate messages.',
     input_schema: { type: 'object', properties: {} },
   },
+  {
+    name: 'get_summary',
+    description: 'Get a recap of recent activity (last 24 hours by default): how many postings were seen, how many were good matches with their scores, how many were applied to, and when the last scrape ran. Use this whenever the user asks for a "summary" of what the bot has been doing.',
+    input_schema: {
+      type: 'object',
+      properties: { hours: { type: 'integer', description: 'how many hours back to summarise, default 24' } },
+    },
+  },
 ];
 
 async function execute(name, input, ctx) {
@@ -163,6 +171,26 @@ async function execute(name, input, ctx) {
     case 'scrape_now': {
       runScrapeCycle().catch((err) => console.error('[scrape_now] error', err));
       return { started: true };
+    }
+
+    case 'get_summary': {
+      const hours = input.hours || 24;
+      const since = Date.now() - hours * 60 * 60 * 1000;
+      const recent = db.listJobs().filter((j) => new Date(j.updatedAt || j.createdAt).getTime() >= since);
+      return {
+        windowHours: hours,
+        lastRunAt: db.getSetting('lastRunAt') || null,
+        paused: !!db.getSetting('paused'),
+        autoApply: !!db.getSetting('autoApply'),
+        postingsSeen: recent.length,
+        matchesFound: recent
+          .filter((j) => ['pending_review', 'applied'].includes(j.status))
+          .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
+          .map((j) => ({ id: j.id, title: j.title, company: j.company, score: j.matchScore, status: j.status })),
+        applied: recent.filter((j) => j.status === 'applied').length,
+        belowThreshold: recent.filter((j) => j.status === 'below_threshold').length,
+        errors: recent.filter((j) => j.status === 'error').length,
+      };
     }
 
     default:

@@ -7,6 +7,8 @@ const db = require('../db');
 const { handleIncomingMessage } = require('./handler');
 const { useRedisAuthState } = require('./redisAuthState');
 
+const BOT_NAME = 'HELLO C';
+
 let sock = null;
 let latestQr = null;
 let isConnected = false;
@@ -58,6 +60,7 @@ async function startWhatsApp() {
       isConnected = true;
       latestQr = null;
       console.log('[whatsapp] connected');
+      sock.updateProfileName(BOT_NAME).catch((err) => console.error('[whatsapp] failed to set profile name:', err.message));
     }
   });
 
@@ -84,11 +87,17 @@ async function startWhatsApp() {
         '';
       if (!text.trim()) continue;
 
+      // Show WhatsApp's native "typing..." indicator immediately so there is visible
+      // feedback while a reply is being worked out, instead of silence.
+      sock.sendPresenceUpdate('composing', from).catch(() => {});
+
       try {
         await handleIncomingMessage(text.trim(), { sendMessage: sendToOwner, sendFile: sendFileToOwner });
       } catch (err) {
         console.error('[whatsapp] handler error', err);
         await sendToOwner(`⚠️ Something went wrong handling that: ${err.message}`).catch(() => {});
+      } finally {
+        sock.sendPresenceUpdate('paused', from).catch(() => {});
       }
     }
   });
