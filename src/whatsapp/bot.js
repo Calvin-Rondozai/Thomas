@@ -3,6 +3,7 @@ const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const config = require('../config');
+const db = require('../db');
 const { handleIncomingMessage } = require('./handler');
 const { useRedisAuthState } = require('./redisAuthState');
 
@@ -10,11 +11,21 @@ let sock = null;
 let latestQr = null;
 let isConnected = false;
 
-function ownerJid() {
-  if (!config.WHATSAPP_OWNER_NUMBER) throw new Error('WHATSAPP_OWNER_NUMBER is not set.');
+// WhatsApp has been rolling out privacy-preserving LID (linked ID) addressing, where a
+// chat's JID can be an opaque id rather than the phone-number-based
+// "<number>@s.whatsapp.net" JID - so matching by reconstructing that from
+// WHATSAPP_OWNER_NUMBER is not reliable. Instead, whichever real JID first messages the
+// bot is captured and persisted as the true owner JID, and used exactly as-is from then
+// on for both filtering incoming messages and addressing outgoing ones.
+function fallbackOwnerJid() {
+  if (!config.WHATSAPP_OWNER_NUMBER) return null;
   return config.WHATSAPP_OWNER_NUMBER.includes('@')
     ? config.WHATSAPP_OWNER_NUMBER
     : `${config.WHATSAPP_OWNER_NUMBER}@s.whatsapp.net`;
+}
+
+function ownerJid() {
+  return db.getSetting('ownerJid') || fallbackOwnerJid();
 }
 
 async function startWhatsApp() {
@@ -55,9 +66,17 @@ async function startWhatsApp() {
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue;
       const from = msg.key.remoteJid;
-      if (config.WHATSAPP_OWNER_NUMBER && !from?.startsWith(config.WHATSAPP_OWNER_NUMBER)) {
-        continue; // only take instructions from the owner's number
+      console.log(`[whatsapp] incoming message from JID: ${from}`);
+
+      const registeredOwnerJid = db.getSetting('ownerJid');
+      if (!registeredOwnerJid) {
+        db.setSetting('ownerJid', from);
+        console.log(`[whatsapp] registered ${from} as the owner JID (first message received).`);
+      } else if (from !== registeredOwnerJid) {
+        console.log(`[whatsapp] ignoring message from unrecognized JID ${from} (owner is ${registeredOwnerJid}).`);
+        continue;
       }
+
       const text =
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
@@ -79,12 +98,16 @@ async function startWhatsApp() {
 
 async function sendToOwner(text) {
   if (!sock) throw new Error('WhatsApp socket not ready yet.');
-  await sock.sendMessage(ownerJid(), { text });
+  const jid = ownerJid();
+  if (!jid) throw new Error('No owner JID known yet - message the bot once first so it can register your chat.');
+  await sock.sendMessage(jid, { text });
 }
 
 async function sendFileToOwner(buffer, filename, mimetype, caption) {
   if (!sock) throw new Error('WhatsApp socket not ready yet.');
-  await sock.sendMessage(ownerJid(), { document: buffer, fileName: filename, mimetype, caption });
+  const jid = ownerJid();
+  if (!jid) throw new Error('No owner JID known yet - message the bot once first so it can register your chat.');
+  await sock.sendMessage(jid, { document: buffer, fileName: filename, mimetype, caption });
 }
 
 function getStatus() {
