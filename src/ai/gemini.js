@@ -152,7 +152,7 @@ async function attemptAcrossKeys(params) {
   throw lastErr;
 }
 
-const SERVER_ERROR_RETRIES = 3;
+const SERVER_ERROR_RETRIES = 5;
 
 /**
  * Calls generateContent, rotating across all configured keys if one is quota-exhausted,
