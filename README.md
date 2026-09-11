@@ -12,147 +12,184 @@ A personal job-search assistant that:
 6. Lets you talk to it on WhatsApp ("status", "show cv 12", "apply 12", "pause",
    "scrape now"...) and it runs the matching action for you.
 
-Runs as a single Node.js process, deployed on Render as an always-on background
-worker.
+Runs as a single Node.js process. This setup targets **$0/month**: Render's free Web
+Service tier, Upstash's free Redis tier, and Gemini's free API tier, with Gmail API
+(OAuth) for sending so it works despite Render blocking outbound SMTP.
 
 ## How the pieces fit together
 
 ```
-Render Background Worker (always-on, persistent disk at /data)
+Render Web Service (free tier)
+├─ http server on $PORT - satisfies Render's health check + an external keep-alive pinger
 ├─ WhatsApp (Baileys, unofficial/free) - your two-way chat interface
 ├─ node-cron loop - scrapes every SCRAPE_INTERVAL_MINUTES
 │   ├─ scrapers/*.js - cheerio scraping of each job board
 │   ├─ ai/gemini.js - cheap pre-filter, then detailed score + CV/cover letter/email draft (rotates across pooled API keys)
 │   └─ notifier.js - pushes updates out to WhatsApp
 ├─ documents/pdf.js - renders the drafted CV/cover letter to PDF
-├─ email/mailer.js - sends the application (Gmail SMTP)
-└─ db.js - flat JSON file tracking every job seen/matched/applied
+├─ email/mailer.js - sends the application via the Gmail API (HTTPS, not SMTP)
+└─ db.js + whatsapp/redisAuthState.js - job database + WhatsApp login, both persisted
+   in Upstash Redis (Render's free tier wipes local disk on every restart)
 ```
 
 ## Important things to know before you rely on this
 
-- This is not a magic auto-apply button by default. New matches are drafted and you
-  are notified on WhatsApp; nothing is emailed to an employer until you reply
+- **This is not a magic auto-apply button by default.** New matches are drafted and
+  you are notified on WhatsApp; nothing is emailed to an employer until you reply
   "apply id-here" (or you turn on auto-apply by saying "auto apply on").
-- Not every posting can be auto-applied to. Some sites route applications through
+- **Not every posting can be auto-applied to.** Some sites route applications through
   their own portal/account system rather than a plain email address. When no email
   address is found on the job's detail page, the bot marks it "manual apply" and just
   gives you the link - it does not attempt to log in to or submit through third-party
   application portals.
-- The WhatsApp integration is unofficial (it logs in as a real WhatsApp account via
+- **The WhatsApp integration is unofficial** (it logs in as a real WhatsApp account via
   the Baileys library, the same way WhatsApp Web works, not Meta's official Business
   API). This is free and gives full two-way chat, but carries a small, low but
   non-zero risk of that number being flagged for automated use. Use a spare/secondary
   number for the bot, not your main one (see setup below).
-- AI-written CVs and cover letters can still be imperfect. Review a draft
+- **AI-written CVs and cover letters can still be imperfect.** Review a draft
   ("show cv id-here") before sending, especially for jobs you care about.
-- zimbajob.com is intentionally not scraped - its robots.txt explicitly disallows AI
-  crawlers, including Claude's. All other sources' robots.txt were checked and allow
-  crawling their listing pages.
+- **A free Render Web Service sleeps after 15 minutes with no HTTP traffic.** An
+  external pinger (step 5 below) hits it every ~10-14 minutes so it never sleeps -
+  without that, WhatsApp messages/scrapes would only happen when something happens to
+  wake it up.
+- **Gemini's free tier is genuinely limited** - in testing, the strongest free model
+  had only ~20 requests/day per Google Cloud project (pooling several API keys only
+  helps if they're on *separate* projects/accounts). The bot defaults to
+  gemini-flash-lite-latest for everything, which has much more free headroom; quality
+  is still good, but if you later add billing you can bump SMART_MODEL in
+  src/ai/gemini.js for better writing.
+- **zimbajob.com is intentionally not scraped** - its robots.txt explicitly disallows
+  AI crawlers, including Claude's. All other sources' robots.txt were checked and
+  allow crawling their listing pages.
 - Site HTML structures change over time. If a scraper's result count drops to 0 for a
   source, that source's page layout has probably changed and its selectors in
   src/scrapers/ will need a small update.
 
-## Prerequisites
+## Prerequisites (all free, no card required for any of them)
 
 - Node.js 18+ (only needed for local testing - Render provides it in production).
-- A Gemini API key from https://aistudio.google.com/apikey (this is separate from a
-  Gemini/Google One consumer subscription - it is its own pay-as-you-go API billing,
-  though it has a usable free tier). You can list more than one key in
-  GEMINI_API_KEYS (comma-separated) - the bot automatically rotates to the next key
-  when one hits its quota, and only messages you on WhatsApp once every key in the
-  list is exhausted, including an estimate of when the quota resets.
-- A Gmail account with an App Password (Google Account, Security, 2-Step
-  Verification, App Passwords) - this is what the bot sends applications from.
-- A second, dedicated phone number for the bot's own WhatsApp account (a spare SIM,
-  dual-SIM slot, or similar). The bot logs into WhatsApp as this number. You then chat
-  with it from your own personal WhatsApp number, like messaging any contact. This is
-  required because a normal account cannot cleanly message itself and be told apart
-  from your own outgoing messages.
-- A Render account (https://render.com) for hosting, plus a card on file for the
-  Starter plan (about $7/month) plus a small persistent disk (about $1/month for
-  1GB). This is the only tier that (a) never sleeps and (b) can keep a persistent
-  disk, both of which "runs non-stop" requires.
+- A **Gemini API key**: https://aistudio.google.com/apikey.
+- A **Google Cloud project with the Gmail API enabled and an OAuth client**, so the
+  bot can send as your real Gmail address over HTTPS (Render's free tier blocks the
+  ports plain SMTP needs). Full steps in section 2 below.
+- An **Upstash Redis database** (free): https://console.upstash.com/ - this is where
+  the WhatsApp session and job history are stored, since Render's free tier has no
+  persistent disk.
+- A **second, dedicated phone number** for the bot's own WhatsApp account (a spare
+  SIM, dual-SIM slot, or similar). The bot logs into WhatsApp as this number; you chat
+  with it from your own personal number, like messaging any contact. This is required
+  because a normal account cannot cleanly message itself and be told apart from your
+  own outgoing messages.
+- A **Render account**: https://render.com (free Web Service, no card).
+- A free **uptime pinger** (e.g. https://uptimerobot.com or https://cron-job.org) to
+  keep the free Render service awake.
 
 ## 1. Fill in your profile and CV style
 
-Two files under data/ drive everything the AI writes. They are already git-ignored so
-your personal details never get committed:
+Two files under `data/` drive everything the AI writes. They are already git-ignored
+so your personal details never get committed:
 
-- data/profile.md - your real facts: contact info, experience, education, skills,
+- `data/profile.md` - your real facts: contact info, experience, education, skills,
   certifications, job preferences. This is the only source of truth for what the AI
   is allowed to say about you.
-- data/cv_template.md - the layout, section order, and tone you want your generated
+- `data/cv_template.md` - the layout, section order, and tone you want your generated
   CVs to follow (not fed as facts, just style).
 
-Generic starting points are provided at data/profile.example.md and
-data/cv_template.example.md - copy and edit those for a fresh profile. These two real
-files have already been filled in from the CV you shared
-(Calvin_Rondozai_TNCyberTech_ICT_Graduate_Trainee.docx), including a "Target roles /
-job preferences" section - open data/profile.md and adjust it any time (specific
-companies to avoid, salary floor, more locations, and so on). You can also just tell
-the bot your new preferences over WhatsApp, though editing the file directly is what
-actually changes matching.
+Generic starting points are provided at `data/profile.example.md` and
+`data/cv_template.example.md` - copy and edit those for a fresh profile.
 
-## 2. Local setup (to test before deploying)
+## 2. Set up Gmail sending (Gmail API + OAuth)
+
+Render's free tier blocks outbound SMTP ports, so plain Gmail SMTP (an "App Password")
+does not work there. Instead, the bot sends through the Gmail API over HTTPS, which
+does work, and still sends as your real Gmail address.
+
+1. Go to https://console.cloud.google.com/ and create a new project.
+2. **APIs & Services → Library** → search "Gmail API" → **Enable**.
+3. **APIs & Services → OAuth consent screen**: User type **External**. Fill in app
+   name, your email as support/developer contact. Save.
+4. Under **Scopes**, add `https://www.googleapis.com/auth/gmail.send`.
+5. Under **Test users**, add your own Gmail address.
+6. **APIs & Services → Credentials → Create Credentials → OAuth client ID** →
+   Application type **Desktop app** → name it anything → **Create**. Note the
+   **Client ID** and **Client Secret** shown.
+7. Locally, put those two values in your `.env` as `GMAIL_CLIENT_ID` and
+   `GMAIL_CLIENT_SECRET`, then run:
+   ```
+   npm install
+   node scripts/get-gmail-token.js
+   ```
+   Follow its instructions (open a URL, sign in, click through the "unverified app"
+   warning - expected for a personal project - copy a code back into the terminal). It
+   prints a `GMAIL_REFRESH_TOKEN` - add that to your `.env` too.
+8. **Important:** go back to the OAuth consent screen page and click **Publish App**
+   to move it from "Testing" to "In production". Skip this and Google expires the
+   refresh token after 7 days; publishing (without needing Google's full verification
+   review, which is only required to remove the "unverified" warning for *other*
+   users) makes it valid indefinitely for your own account.
+
+## 3. Set up Upstash Redis
+
+1. Go to https://console.upstash.com/ → sign up (no card) → **Create Database** →
+   any name, choose a region close to your Render region.
+2. On the database's page, copy the **REST URL** and **REST Token** - these become
+   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+
+## 4. Local setup (to test before deploying)
 
 ```
 npm install
 copy .env.example .env
 ```
 
-Then edit .env with your real values, and run:
+Fill in `.env` with everything from steps 1-3 above plus your Gemini key and
+`WHATSAPP_OWNER_NUMBER` (your personal number, digits only, no `+`). Then:
 
 ```
 npm start
 ```
 
-On first run, a QR code prints in the terminal. Open WhatsApp on the bot's phone (the
-spare number), go to Settings, Linked Devices, Link a Device, and scan it. The session
-is then saved under data/wa_auth/ so you will not need to scan again unless you log
-the device out.
+A QR code prints in the terminal. Open WhatsApp on the **bot's phone** (the spare
+number) → Settings → Linked Devices → Link a Device → scan it. The session is saved to
+Upstash, so redeploys and restarts will not require re-scanning.
 
-Once connected, message the bot from your own personal number (the one you put in
-WHATSAPP_OWNER_NUMBER): try "status".
+Once connected, message the bot from your own personal number: try "status".
 
-## 3. Deploy to Render (always-on)
+## 5. Deploy to Render (free)
 
-This repo includes a render.yaml blueprint.
+This repo includes a `render.yaml` blueprint.
 
-1. Push this repo to GitHub (a private repo is recommended, since even with data/*.md
-   git-ignored you may not want the rest public - your call).
-2. In Render: New, then Blueprint, then pick this repo. Render reads render.yaml and
-   creates a Background Worker on the Starter plan with a 1GB persistent disk mounted
-   at /data.
-3. Fill in the environment variables it asks for (marked sync: false in render.yaml):
-   GEMINI_API_KEYS, EMAIL_USER, EMAIL_APP_PASSWORD, WHATSAPP_OWNER_NUMBER.
-4. Base64-encode your profile and CV template so Render can write them onto the
-   persistent disk on first boot, instead of committing them to git:
-
-   macOS/Linux:
-   ```
-   base64 -i data/profile.md | tr -d '\n'
-   base64 -i data/cv_template.md | tr -d '\n'
-   ```
+1. Push this repo to GitHub.
+2. In Render: **New → Blueprint** → pick this repo. Render reads `render.yaml` and
+   creates a **Web Service** on the **Free** plan.
+3. Fill in the environment variables it prompts for: `GEMINI_API_KEYS`, `EMAIL_USER`,
+   `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`,
+   `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `WHATSAPP_OWNER_NUMBER`.
+4. Base64-encode your profile and CV template (they get rewritten from these on every
+   boot, since local disk is ephemeral here):
 
    Windows PowerShell:
-   ```
+   ```powershell
    [Convert]::ToBase64String([IO.File]::ReadAllBytes("data\profile.md"))
    [Convert]::ToBase64String([IO.File]::ReadAllBytes("data\cv_template.md"))
    ```
+   macOS/Linux:
+   ```bash
+   base64 -i data/profile.md | tr -d '\n'
+   base64 -i data/cv_template.md | tr -d '\n'
+   ```
+   Paste the results into `PROFILE_MD_BASE64` and `CV_TEMPLATE_MD_BASE64`.
+5. Deploy. Watch the **Logs** tab - once it boots, a QR code prints. Scan it from the
+   bot's WhatsApp (you only need to do this once - the session persists in Upstash
+   after that, surviving restarts/redeploys).
+6. Note the `.onrender.com` URL Render assigns the service.
+7. **Set up the keep-alive pinger** so the free service never sleeps: in
+   UptimeRobot or cron-job.org (both free, no card), create a new monitor that hits
+   your service's URL every 10-14 minutes. That's it - as long as it's pinged, the
+   free instance stays awake continuously.
 
-   Paste the results into the PROFILE_MD_BASE64 and CV_TEMPLATE_MD_BASE64 env vars in
-   Render. These are only read once - if the file already exists on the disk, they
-   are ignored, so to update your profile later either edit the env var and delete
-   /data/profile.md via Render's Shell tab, or just edit the file directly with
-   Render's Shell.
-5. Deploy. Watch the Logs tab for the QR code on first boot, and scan it from the
-   bot's WhatsApp within a couple of minutes (it keeps reprinting on reconnect
-   attempts if you miss it, or you can just trigger a manual redeploy for a fresh
-   one).
-6. From then on it just runs. Render's Starter plan does not spin down, and the
-   persistent disk keeps the WhatsApp session and job database across restarts and
-   redeploys.
+From then on it runs continuously for $0/month, provided the pinger keeps running.
 
 ## Talking to the bot on WhatsApp
 
@@ -175,29 +212,30 @@ phrasing does not have to be exact.
 | Variable | Purpose | Default |
 |---|---|---|
 | GEMINI_API_KEYS | Gemini API key(s), comma-separated | required |
-| EMAIL_SERVICE / EMAIL_USER / EMAIL_APP_PASSWORD | sends applications | required |
+| EMAIL_USER | your real Gmail address (the "From") | required |
+| GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN | Gmail API OAuth (see section 2) | required |
+| UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN | persistent storage (see section 3) | required |
 | WHATSAPP_OWNER_NUMBER | your personal number, digits only, no plus sign | required |
 | SCRAPE_INTERVAL_MINUTES | how often to scrape all sources | 60 |
 | MATCH_THRESHOLD | minimum score, 0 to 10, to draft a full application | 7 |
 | MAX_PAGES_PER_SOURCE | listing pages fetched per source per run | 2 |
 | SCRAPER_USER_AGENT | identifies the bot to job sites | generic |
+| PORT | keep-alive HTTP server port | 3000 (Render sets this itself) |
 
-## Costs (realistic estimate)
+## Costs
 
-- Render Starter worker plus 1GB disk: about $8/month.
-- Gemini API: pay-per-use, scales with how many new postings show up and how many get
-  fully drafted; the cheap pre-filter step in front of the expensive drafting step
-  keeps this low, and pooling a few free-tier keys in GEMINI_API_KEYS can cover most
-  or all of typical usage at this bot's volume.
-- WhatsApp (Baileys) and Gmail SMTP: free.
+$0/month at this bot's typical volume: Render free Web Service, Upstash free Redis,
+Gemini free API tier, Gmail API, Baileys WhatsApp, and a free uptime pinger. The only
+way this stops being free is if you outgrow a free tier's limits (e.g. Gemini quota)
+and choose to add billing yourself.
 
 ## Extending it
 
-- Add another job site: create src/scrapers/newsite.js exporting fetchListings() in
-  the same shape as the existing ones, then register it in src/scrapers/index.js.
-- Everything the bot can do lives in src/whatsapp/tools.js as a small list of named
-  tools - add a new one there and describe it in TOOL_DEFS to give the chat assistant
-  a new capability.
+- Add another job site: create `src/scrapers/newsite.js` exporting `fetchListings()`
+  in the same shape as the existing ones, then register it in `src/scrapers/index.js`.
+- Everything the bot can do lives in `src/whatsapp/tools.js` as a small list of named
+  tools - add a new one there and describe it in `TOOL_DEFS` to give the chat
+  assistant a new capability.
 
 ## License
 

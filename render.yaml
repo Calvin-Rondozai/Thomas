@@ -1,24 +1,26 @@
 services:
-  - type: worker
+  - type: web
     name: zim-job-bot
     runtime: node
-    plan: starter
+    plan: free
     region: oregon
     buildCommand: npm install
     startCommand: node src/index.js
     autoDeployTrigger: commit
-    disk:
-      name: job-bot-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: GEMINI_API_KEYS
         sync: false
-      - key: EMAIL_SERVICE
-        value: gmail
       - key: EMAIL_USER
         sync: false
-      - key: EMAIL_APP_PASSWORD
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: WHATSAPP_OWNER_NUMBER
         sync: false

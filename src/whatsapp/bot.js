@@ -1,9 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const config = require('../config');
 const { handleIncomingMessage } = require('./handler');
+const { useRedisAuthState } = require('./redisAuthState');
 
 let sock = null;
 
@@ -15,7 +16,7 @@ function ownerJid() {
 }
 
 async function startWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState(config.WHATSAPP_AUTH_DIR);
+  const { state, saveCreds } = await useRedisAuthState();
 
   sock = makeWASocket({
     auth: state,
@@ -36,7 +37,7 @@ async function startWhatsApp() {
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log('[whatsapp] connection closed, code:', statusCode, '- reconnecting:', shouldReconnect);
       if (shouldReconnect) startWhatsApp().catch((err) => console.error('[whatsapp] reconnect failed', err));
-      else console.error('[whatsapp] logged out - delete the wa_auth folder on the persistent disk and re-scan the QR code.');
+      else console.error('[whatsapp] logged out - clear the zim_job_bot:wa:* keys in Upstash and re-scan the QR code.');
     } else if (connection === 'open') {
       console.log('[whatsapp] connected');
     }

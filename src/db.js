@@ -1,34 +1,30 @@
-// Small hand-rolled JSON file store. Deliberately not a real database - this bot
-// tracks at most a few thousand job records, so a flat file that's rewritten on
-// every change is simple, dependency-free, and easy to inspect/back up by hand.
-const fs = require('fs');
-const path = require('path');
-const config = require('./config');
+// Job/settings store. State is kept in memory for instant synchronous reads (matching
+// every existing call site), loaded once from Upstash Redis at startup via init(), and
+// written back to Redis (fire-and-forget) on every mutation. This is what actually
+// persists across Render's free-tier restarts, since local disk does not.
+const upstash = require('./store/upstash');
 
-const DB_PATH = config.DB_PATH;
+const REDIS_KEY = 'zim_job_bot:db';
 
-function ensureDir(p) {
-  const dir = path.dirname(p);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
+let state = { jobs: {}, settings: {} };
+let initialized = false;
 
-function load() {
-  ensureDir(DB_PATH);
-  if (!fs.existsSync(DB_PATH)) return { jobs: {}, settings: {} };
+async function init() {
+  if (initialized) return;
   try {
-    const parsed = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-    return { jobs: parsed.jobs || {}, settings: parsed.settings || {} };
+    const raw = await upstash.get(REDIS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state = { jobs: parsed.jobs || {}, settings: parsed.settings || {} };
+    }
   } catch (err) {
-    console.error('[db] failed to parse db file, starting fresh:', err.message);
-    return { jobs: {}, settings: {} };
+    console.error('[db] failed to load state from Upstash, starting fresh:', err.message);
   }
+  initialized = true;
 }
-
-const state = load();
 
 function persist() {
-  ensureDir(DB_PATH);
-  fs.writeFileSync(DB_PATH, JSON.stringify(state, null, 2));
+  upstash.set(REDIS_KEY, JSON.stringify(state)).catch((err) => console.error('[db] failed to persist to Upstash:', err.message));
 }
 
 function getJob(id) {
@@ -57,4 +53,4 @@ function setSetting(key, value) {
   persist();
 }
 
-module.exports = { getJob, upsertJob, listJobs, getSetting, setSetting };
+module.exports = { init, getJob, upsertJob, listJobs, getSetting, setSetting };
