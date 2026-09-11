@@ -58,7 +58,7 @@ function generateCoverLetterPdf(text) {
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    doc.fontSize(11).fillColor('#000').text(text || '', { align: 'left' });
+    doc.fontSize(11).fillColor('#000').text(text || '', { align: 'justify' });
     doc.end();
   });
 }
