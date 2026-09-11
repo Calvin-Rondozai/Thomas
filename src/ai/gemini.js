@@ -250,18 +250,29 @@ Source: ${job.source} (${job.url})
 Description:
 ${job.fullDescription || job.snippet || '(no description available)'}
 
-Produce a tailored application, re-ordering and re-emphasizing the candidate's real experience/skills to best fit this specific posting. Respond ONLY with JSON in this exact shape:
+Produce a tailored application, re-ordering and re-emphasizing the candidate's real experience/skills to best fit this specific posting. Do not compress this down to fit one page - a longer, fully-detailed CV covering every relevant role is expected and correct; do not omit sections to save space. The "references", "personalDetails", and "certifications" sections are NEVER optional - copy them from the candidate profile exactly every single time, even if they don't seem directly relevant to this job. Respond ONLY with JSON in this exact shape:
 {
   "cv": {
     "name": "...",
     "title": "...",
     "contact": "...",
     "summary": "...",
-    "experience": [{"role":"...","employer":"...","dates":"...","bullets":["...","..."]}],
-    "education": [{"qualification":"...","institution":"...","dates":"..."}],
-    "skills": ["...","..."]
+    "experience": [
+      {
+        "role": "...", "employer": "...", "dates": "...",
+        "bullets": ["...", "..."],
+        "subsections": [{"heading": "...", "bullets": ["...", "..."]}]
+      }
+    ],
+    "keyProjects": ["Project Name: one-line description of what it does and what it demonstrates", "..."],
+    "skillsTable": [{"category": "Programming", "description": "concise summary of skills in this category"}, "... one entry per skill category from the profile, e.g. Programming, AI and ML, Database Management, Digital Banking/ICT, Networking, Cybersecurity, Cloud and Analytics, Systems Administration, Software Engineering"],
+    "education": [{"qualification": "...", "institution": "...", "dates": "leave empty string for the BSc Honours entry per the profile's rule, fill in normally for others"}],
+    "certifications": [{"main": "...", "subs": ["...", "..."]}, "one entry per certification bullet from the profile - subs is an empty array except for the Cisco entry, which must list its courses as subs"],
+    "personalDetails": "a single line like 'Nationality: ... | Age: ... | Available: ... | Driver's Licence: ...', copied from the profile",
+    "references": [{"name": "...", "title": "...", "phone": "..."}, "always exactly the three confirmed referees listed in the profile, verbatim - never fewer, never a different person"]
   },
-  "coverLetter": "full cover letter text, addressed generically if no hiring manager name is known",
+  "experienceNote": "for each experience entry with clearly distinct thematic groups of responsibilities (e.g. network infrastructure vs enterprise systems vs documentation), use subsections instead of a flat bullets list - use plain bullets only for simpler roles",
+  "coverLetter": "full cover letter text, addressed generically if no hiring manager name is known, structured per the profile's cover letter section-order rule (sender address, recipient address, salutation, RE: line, body, signature block)",
   "emailSubject": "...",
   "emailBody": "short professional email body to accompany the attached CV and cover letter"
 }`;
