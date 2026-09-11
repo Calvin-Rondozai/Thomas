@@ -2,6 +2,10 @@ const db = require('../db');
 const { sendApplicationEmail } = require('../email/mailer');
 const { generateCvPdf, generateCoverLetterPdf } = require('../documents/pdf');
 const { runScrapeCycle } = require('../scheduler');
+const { fetchDetail } = require('../scrapers/detail');
+const { matchJobDetailed, generateApplication } = require('../ai/gemini');
+const { loadProfileText, loadCvTemplateText } = require('../profile/loadProfile');
+const { makeJobId } = require('../utils');
 
 const TOOL_DEFS = [
   {
@@ -51,6 +55,19 @@ const TOOL_DEFS = [
     name: 'scrape_now',
     description: 'Trigger an immediate scrape-and-match cycle instead of waiting for the next scheduled run. Runs in the background; results follow as separate messages.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'submit_job',
+    description: 'Evaluate one specific job the user has sent, and draft a full tailored CV, cover letter, and application email for it, sending the draft PDFs directly in this chat for review. Use this whenever the user shares a job posting URL or pastes job description text and wants it looked at, drafted, or applied to - unlike the automatic scraper, this always drafts something for the user to review, since they explicitly asked for this one.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        urlOrText: { type: 'string', description: 'The job posting URL if one was given, otherwise the full pasted job description text.' },
+        title: { type: 'string', description: "A short job title, inferred from the content if the user didn't state one explicitly." },
+        company: { type: 'string', description: 'The company name, if known or inferable; omit if unknown.' },
+      },
+      required: ['urlOrText', 'title'],
+    },
   },
   {
     name: 'get_summary',
@@ -171,6 +188,77 @@ async function execute(name, input, ctx) {
     case 'scrape_now': {
       runScrapeCycle().catch((err) => console.error('[scrape_now] error', err));
       return { started: true };
+    }
+
+    case 'submit_job': {
+      const raw = (input.urlOrText || '').trim();
+      if (!raw) return { error: 'No job URL or text was given.' };
+
+      const isUrl = /^https?:\/\//i.test(raw);
+      let fullDescription;
+      let applyEmail = null;
+      const sourceUrl = isUrl ? raw : null;
+
+      if (isUrl) {
+        try {
+          const detail = await fetchDetail(raw);
+          fullDescription = detail.text;
+          applyEmail = detail.email || null;
+        } catch (err) {
+          return { error: `Could not fetch that URL: ${err.message}` };
+        }
+      } else {
+        fullDescription = raw;
+        const emailMatch = raw.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        applyEmail = emailMatch ? emailMatch[0] : null;
+      }
+
+      const job = {
+        id: makeJobId(sourceUrl || fullDescription.slice(0, 300)),
+        source: 'manual',
+        url: sourceUrl,
+        title: input.title,
+        company: input.company || null,
+        location: null,
+        deadline: null,
+        fullDescription,
+        applyEmail,
+        applyMethod: applyEmail ? 'email' : 'manual',
+      };
+
+      const profileText = loadProfileText();
+      const cvTemplateText = loadCvTemplateText();
+
+      const { score, reasoning } = await matchJobDetailed(job, profileText);
+      job.matchScore = score;
+      job.matchReason = reasoning;
+
+      const draft = await generateApplication(job, profileText, cvTemplateText);
+      job.draft = draft;
+      job.status = 'pending_review';
+      db.upsertJob(job);
+
+      const cvPdf = await generateCvPdf(draft.cv);
+      const clPdf = await generateCoverLetterPdf(draft.coverLetter);
+      await ctx.sendFile(
+        cvPdf,
+        `CV - ${job.title}.pdf`,
+        'application/pdf',
+        `Draft CV for ${job.title}${job.company ? ` at ${job.company}` : ''} (match ${score}/10)`
+      );
+      await ctx.sendFile(clPdf, `Cover Letter - ${job.title}.pdf`, 'application/pdf', 'Draft cover letter');
+
+      return {
+        success: true,
+        jobId: job.id,
+        matchScore: score,
+        matchReason: reasoning,
+        applyMethod: job.applyMethod,
+        note:
+          job.applyMethod === 'email'
+            ? `Reply "apply ${job.id}" to send it.`
+            : `No direct application email was found in that posting - this one needs a manual application${sourceUrl ? ` at ${sourceUrl}` : ''}.`,
+      };
     }
 
     case 'get_summary': {
