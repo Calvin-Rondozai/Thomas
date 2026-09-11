@@ -14,3 +14,4 @@ keys.txt
 
 # scratch/local test scripts that may contain a hardcoded key - never commit these
 test.py
+render-env-values.txt
