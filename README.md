@@ -1,4 +1,4 @@
-# Zim Job Bot
+# Thomas Job Hunter
 
 A personal job-search assistant that:
 1. Scrapes Zimbabwean job boards (VacancyMail, JobsZimbabwe, iHarare Jobs, ApplyNOW).
