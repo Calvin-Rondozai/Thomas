@@ -7,6 +7,8 @@ const { handleIncomingMessage } = require('./handler');
 const { useRedisAuthState } = require('./redisAuthState');
 
 let sock = null;
+let latestQr = null;
+let isConnected = false;
 
 function ownerJid() {
   if (!config.WHATSAPP_OWNER_NUMBER) throw new Error('WHATSAPP_OWNER_NUMBER is not set.');
@@ -29,16 +31,21 @@ async function startWhatsApp() {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) {
-      console.log('\n[whatsapp] Scan this QR code from the BOT\'s WhatsApp account (Linked Devices > Link a device):\n');
+      latestQr = qr;
+      console.log('\n[whatsapp] QR code ready - open /qr on this service\'s URL in a browser to scan it.');
+      console.log('[whatsapp] (ASCII fallback below, but a web log viewer usually mangles this - the /qr page is reliable):\n');
       qrcode.generate(qr, { small: true });
     }
     if (connection === 'close') {
+      isConnected = false;
       const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log('[whatsapp] connection closed, code:', statusCode, '- reconnecting:', shouldReconnect);
       if (shouldReconnect) startWhatsApp().catch((err) => console.error('[whatsapp] reconnect failed', err));
       else console.error('[whatsapp] logged out - clear the zim_job_bot:wa:* keys in Upstash and re-scan the QR code.');
     } else if (connection === 'open') {
+      isConnected = true;
+      latestQr = null;
       console.log('[whatsapp] connected');
     }
   });
@@ -80,4 +87,8 @@ async function sendFileToOwner(buffer, filename, mimetype, caption) {
   await sock.sendMessage(ownerJid(), { document: buffer, fileName: filename, mimetype, caption });
 }
 
-module.exports = { startWhatsApp, sendToOwner, sendFileToOwner };
+function getStatus() {
+  return { qr: latestQr, connected: isConnected };
+}
+
+module.exports = { startWhatsApp, sendToOwner, sendFileToOwner, getStatus };

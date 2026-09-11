@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const http = require('http');
+const qrcode = require('qrcode');
 const config = require('./config');
 
 function bootstrapFromEnv(envVar, targetPath) {
@@ -17,7 +18,7 @@ bootstrapFromEnv('PROFILE_MD_BASE64', config.PROFILE_PATH);
 bootstrapFromEnv('CV_TEMPLATE_MD_BASE64', config.CV_TEMPLATE_PATH);
 
 const db = require('./db');
-const { startWhatsApp, sendToOwner, sendFileToOwner } = require('./whatsapp/bot');
+const { startWhatsApp, sendToOwner, sendFileToOwner, getStatus } = require('./whatsapp/bot');
 const { startScheduler } = require('./scheduler');
 const notifier = require('./notifier');
 
@@ -31,9 +32,36 @@ function requireEnv(checks) {
 
 // Render's free Web Service plan requires listening on $PORT for its own health check,
 // and this is also the endpoint an external keep-alive pinger hits (see README) to stop
-// the free instance from sleeping after 15 minutes of no HTTP traffic.
+// the free instance from sleeping after 15 minutes of no HTTP traffic. It also serves
+// /qr as a real scannable image - a web log viewer usually mangles the ASCII QR code
+// (wrapped/reflowed lines, inconsistent block-character rendering), so this is the
+// reliable way to link WhatsApp on a host like Render.
 function startKeepAliveServer() {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
+    if (req.url === '/qr') {
+      const { qr, connected } = getStatus();
+      if (connected) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<p>Already connected - no QR code needed. Message the bot on WhatsApp to try it.</p>');
+        return;
+      }
+      if (!qr) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<p>No QR code yet - refresh this page in a few seconds.</p>');
+        return;
+      }
+      try {
+        const dataUrl = await qrcode.toDataURL(qr, { width: 320 });
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(
+          `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><body style="text-align:center;font-family:sans-serif"><h3>Scan with the BOT's WhatsApp (Linked Devices &gt; Link a device)</h3><img src="${dataUrl}" alt="QR code"><p>This page refreshes every 5 seconds until connected.</p><script>setTimeout(()=>location.reload(),5000)</script></body>`
+        );
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end(`Failed to render QR: ${err.message}`);
+      }
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Zim Job Bot is running.\n');
   });
