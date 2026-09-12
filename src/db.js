@@ -5,6 +5,12 @@
 const upstash = require('./store/upstash');
 
 const REDIS_KEY = 'zim_job_bot:db';
+// Stored under its own key, not inside the main state blob above - that blob gets
+// rewritten in full on every single job/setting mutation, and a multi-MB certificates
+// file riding along on every tiny write would be wasteful and risk hitting request
+// size limits. Fetched directly from Redis only when actually needed (uploading it,
+// or attaching it to an application).
+const CERTIFICATES_KEY = 'zim_job_bot:certificates_pdf';
 
 let state = { jobs: {}, settings: {} };
 let initialized = false;
@@ -53,4 +59,22 @@ function setSetting(key, value) {
   persist();
 }
 
-module.exports = { init, getJob, upsertJob, listJobs, getSetting, setSetting };
+async function getCertificatesPdf() {
+  const b64 = await upstash.get(CERTIFICATES_KEY);
+  return b64 ? Buffer.from(b64, 'base64') : null;
+}
+
+async function setCertificatesPdf(buffer) {
+  await upstash.set(CERTIFICATES_KEY, buffer.toString('base64'));
+}
+
+module.exports = {
+  init,
+  getJob,
+  upsertJob,
+  listJobs,
+  getSetting,
+  setSetting,
+  getCertificatesPdf,
+  setCertificatesPdf,
+};

@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
@@ -8,6 +8,7 @@ const { handleIncomingMessage } = require('./handler');
 const { useRedisAuthState } = require('./redisAuthState');
 
 const BOT_NAME = 'HELLO C';
+const MAX_CERTIFICATES_PDF_BYTES = 8 * 1024 * 1024; // Upstash free tier caps a request at 10MB; base64 inflates size ~33%
 
 let sock = null;
 let latestQr = null;
@@ -77,6 +78,29 @@ async function startWhatsApp() {
         console.log(`[whatsapp] registered ${from} as the owner JID (first message received).`);
       } else if (from !== registeredOwnerJid) {
         console.log(`[whatsapp] ignoring message from unrecognized JID ${from} (owner is ${registeredOwnerJid}).`);
+        continue;
+      }
+
+      const docMessage = msg.message.documentMessage;
+      if (docMessage) {
+        if (docMessage.mimetype !== 'application/pdf') {
+          await sendToOwner("That's not a PDF - please send your certificates as a single PDF file.").catch(() => {});
+          continue;
+        }
+        try {
+          const buffer = await downloadMediaMessage(msg, 'buffer', {});
+          if (buffer.length > MAX_CERTIFICATES_PDF_BYTES) {
+            await sendToOwner(
+              `That PDF is ${(buffer.length / 1024 / 1024).toFixed(1)}MB - please compress it under 8MB and resend (e.g. a lower-resolution scan).`
+            );
+            continue;
+          }
+          await db.setCertificatesPdf(buffer);
+          await sendToOwner(`✅ Saved your certificates (${(buffer.length / 1024).toFixed(0)}KB) - I'll attach this alongside your CV and cover letter from now on.`);
+        } catch (err) {
+          console.error('[whatsapp] failed to save certificates PDF', err);
+          await sendToOwner(`⚠️ Couldn't save that file: ${err.message}`).catch(() => {});
+        }
         continue;
       }
 

@@ -1,11 +1,24 @@
 const db = require('../db');
 const { sendApplicationEmail } = require('../email/mailer');
-const { generateCvPdf, generateCoverLetterPdf } = require('../documents/pdf');
+const { generateApplicationPdf } = require('../documents/pdf');
 const { runScrapeCycle } = require('../scheduler');
 const { fetchDetail } = require('../scrapers/detail');
 const { matchJobDetailed, generateApplication } = require('../ai/gemini');
 const { loadProfileText, loadCvTemplateText } = require('../profile/loadProfile');
 const { makeJobId } = require('../utils');
+
+/** The combined CV+cover-letter PDF, plus the user's uploaded certificates PDF if they've sent one. */
+async function buildApplicationAttachments(draft) {
+  const combinedPdf = await generateApplicationPdf({ coverLetterText: draft.coverLetter, cv: draft.cv });
+  const fileName = `${draft.cv.name || 'Application'} CV and Cover Letter.pdf`;
+  const attachments = [{ filename: fileName, content: combinedPdf }];
+
+  const certificatesPdf = await db.getCertificatesPdf().catch(() => null);
+  if (certificatesPdf) {
+    attachments.push({ filename: `${draft.cv.name || 'Candidate'} Certificates.pdf`, content: certificatesPdf });
+  }
+  return { attachments, combinedPdf, fileName };
+}
 
 const TOOL_DEFS = [
   {
@@ -83,6 +96,7 @@ async function execute(name, input, ctx) {
   switch (name) {
     case 'get_status': {
       const jobs = db.listJobs();
+      const certificatesPdf = await db.getCertificatesPdf().catch(() => null);
       return {
         paused: !!db.getSetting('paused'),
         autoApply: !!db.getSetting('autoApply'),
@@ -90,6 +104,7 @@ async function execute(name, input, ctx) {
         pendingCount: jobs.filter((j) => j.status === 'pending_review').length,
         appliedCount: jobs.filter((j) => j.status === 'applied').length,
         totalTracked: jobs.length,
+        certificatesOnFile: !!certificatesPdf,
       };
     }
 
@@ -133,10 +148,10 @@ async function execute(name, input, ctx) {
     case 'send_job_documents': {
       const job = db.getJob(input.jobId);
       if (!job || !job.draft) return { error: 'no draft available for that job id' };
-      const cvPdf = await generateCvPdf(job.draft.cv);
-      const clPdf = await generateCoverLetterPdf(job.draft.coverLetter);
-      await ctx.sendFile(cvPdf, `CV - ${job.title}.pdf`, 'application/pdf', `Draft CV for ${job.title} at ${job.company || job.source}`);
-      await ctx.sendFile(clPdf, `Cover Letter - ${job.title}.pdf`, 'application/pdf', 'Draft cover letter');
+      const { attachments } = await buildApplicationAttachments(job.draft);
+      for (const att of attachments) {
+        await ctx.sendFile(att.content, att.filename, 'application/pdf', `Draft for ${job.title} at ${job.company || job.source} (match ${job.matchScore ?? '?'}/10)`);
+      }
       return { success: true };
     }
 
@@ -150,16 +165,12 @@ async function execute(name, input, ctx) {
           url: job.url,
         };
       }
-      const cvPdf = await generateCvPdf(job.draft.cv);
-      const clPdf = await generateCoverLetterPdf(job.draft.coverLetter);
+      const { attachments } = await buildApplicationAttachments(job.draft);
       await sendApplicationEmail({
         to: job.applyEmail,
         subject: job.draft.emailSubject,
         body: job.draft.emailBody,
-        attachments: [
-          { filename: 'CV.pdf', content: cvPdf },
-          { filename: 'Cover Letter.pdf', content: clPdf },
-        ],
+        attachments,
       });
       job.status = 'applied';
       job.appliedAt = new Date().toISOString();
@@ -238,15 +249,15 @@ async function execute(name, input, ctx) {
       job.status = 'pending_review';
       db.upsertJob(job);
 
-      const cvPdf = await generateCvPdf(draft.cv);
-      const clPdf = await generateCoverLetterPdf(draft.coverLetter);
-      await ctx.sendFile(
-        cvPdf,
-        `CV - ${job.title}.pdf`,
-        'application/pdf',
-        `Draft CV for ${job.title}${job.company ? ` at ${job.company}` : ''} (match ${score}/10)`
-      );
-      await ctx.sendFile(clPdf, `Cover Letter - ${job.title}.pdf`, 'application/pdf', 'Draft cover letter');
+      const { attachments } = await buildApplicationAttachments(draft);
+      for (const att of attachments) {
+        await ctx.sendFile(
+          att.content,
+          att.filename,
+          'application/pdf',
+          `Draft for ${job.title}${job.company ? ` at ${job.company}` : ''} (match ${score}/10)`
+        );
+      }
 
       return {
         success: true,

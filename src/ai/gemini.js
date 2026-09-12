@@ -234,7 +234,7 @@ Score how well this candidate matches this specific posting from 0 to 10 (10 = e
 
 /** Generates a tailored CV (structured JSON), cover letter, and application email for one job. */
 async function generateApplication(job, profileText, cvTemplateText) {
-  const prompt = `You are an expert career writer helping a Zimbabwean job seeker apply for a specific job. Never invent facts, employers, dates, qualifications, or skills that are not present in the candidate profile below - only reorganize, emphasize, and phrase what is actually there. If something relevant is not in the profile, leave it out rather than making it up. Never use an em dash (—) or en dash (–) anywhere in the CV or cover letter text - use a comma, a period, a regular hyphen (-), or "at"/"to" instead.
+  const prompt = `You are an expert career writer helping a Zimbabwean job seeker apply for a specific job. The CV and cover letter must be professional and completely truthful - never invent facts, employers, dates, qualifications, skills, or a level of proficiency the candidate does not have. Only reorganize, emphasize, and phrase what is actually in the profile below. If something relevant is not in the profile, leave it out rather than making it up. Mirroring the job posting's own terminology (for ATS matching) must never cross into overstating the candidate's actual proficiency or experience level with something - e.g. do not describe "foundational awareness" of a tool as expertise, and do not claim experience with a specific tool/technology the posting mentions unless the profile actually lists it. Never use an em dash (—) or en dash (–) anywhere in the CV or cover letter text - use a comma, a period, a regular hyphen (-), or "at"/"to" instead.
 
 CANDIDATE PROFILE (ground truth - do not contradict or embellish beyond this):
 ${profileText}
@@ -260,7 +260,8 @@ Respond ONLY with JSON in this exact shape:
   "cv": {
     "name": "...",
     "title": "a title built specifically around THIS posting's job title, not a generic multi-category tagline",
-    "contact": "...",
+    "contact": "email | phone | address only - no links here",
+    "links": "linkedin URL | github URL - on their own separate line from contact",
     "summary": "3-5 sentences that lead with how this candidate fits THIS specific posting, using the posting's own key terms wherever genuinely true",
     "experience": [
       {
@@ -279,7 +280,7 @@ Respond ONLY with JSON in this exact shape:
   "experienceNote": "for each experience entry with clearly distinct thematic groups of responsibilities (e.g. network infrastructure vs enterprise systems vs documentation), use subsections instead of a flat bullets list - use plain bullets only for simpler roles",
   "coverLetter": "full cover letter text, addressed generically if no hiring manager name is known, structured per the profile's cover letter section-order rule (sender address, recipient address, salutation, RE: line, body, signature block)",
   "emailSubject": "...",
-  "emailBody": "short professional email body to accompany the attached CV and cover letter"
+  "emailBody": "the plain-text email body sent alongside the attached CV and cover letter. Write it as complete, full sentences grouped into a small number of full paragraphs - straight to the point and motivated in tone, never cut off mid-sentence or broken into short choppy lines. Within a paragraph, write it as one continuous block of text with no manual line breaks at all (only use a line break between whole paragraphs) - the email client wraps long lines on its own. State the exact job title and the exact company name from the job posting below (use '${job.company || 'your organisation'}' verbatim if referring to the employer by name - never invent or guess a different company name)."
 }`;
 
   const res = await generateContent({
