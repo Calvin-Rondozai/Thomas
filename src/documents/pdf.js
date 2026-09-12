@@ -193,13 +193,22 @@ function generateCoverLetterPdf(text) {
     doc.on('error', reject);
 
     const lines = (text || '').split('\n');
-    lines.forEach((line) => {
-      const isReLine = /^RE:/i.test(line.trim());
+    lines.forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) {
+        // pdfkit's .text('') does not advance the cursor at all, so a blank source
+        // line (paragraph/address-block spacing) has to be an explicit moveDown.
+        doc.moveDown(0.6);
+        return;
+      }
+      const isReLine = /^RE:/i.test(line);
+      if (isReLine) doc.moveDown(0.3);
       doc
         .fontSize(11)
         .font(isReLine ? 'Helvetica-Bold' : 'Helvetica')
         .fillColor('#000000')
-        .text(line, { align: 'justify' });
+        .text(line, { align: 'justify', underline: isReLine });
+      if (isReLine) doc.moveDown(0.3);
     });
 
     doc.end();

@@ -250,13 +250,18 @@ Source: ${job.source} (${job.url})
 Description:
 ${job.fullDescription || job.snippet || '(no description available)'}
 
-Produce a tailored application, re-ordering and re-emphasizing the candidate's real experience/skills to best fit this specific posting. Do not compress this down to fit one page - a longer, fully-detailed CV covering every relevant role is expected and correct; do not omit sections to save space. The "references", "personalDetails", and "certifications" sections are NEVER optional - copy them from the candidate profile exactly every single time, even if they don't seem directly relevant to this job. Respond ONLY with JSON in this exact shape:
+Produce a tailored application, re-ordering and re-emphasizing the candidate's real experience/skills to best fit this specific posting. This must be genuinely tailored to THIS posting specifically, not a generic CV:
+- The CV's title/tagline must directly reflect this posting's actual job title (e.g. if the posting is for "IT Officer", the title should be built around "IT Officer", not a broad combination of the candidate's usual target-role categories from their profile).
+- Read the job posting's description closely and identify the specific skills, tools, technologies, and terminology it uses. For every one of those that the candidate genuinely has (per the profile - never fabricate one they don't), use the posting's own exact wording for it rather than a looser paraphrase, and prioritize surfacing it in the summary and relevant experience bullets. This is to maximize how well the CV matches automated ATS keyword screening for this specific posting - the CV should read as clearly written for this exact role, not a reused generic one.
+- Do not compress this down to fit one page - a longer, fully-detailed CV covering every relevant role is expected and correct; do not omit sections to save space.
+- The "references", "personalDetails", and "certifications" sections are NEVER optional - copy them from the candidate profile exactly every single time, even if they don't seem directly relevant to this job.
+Respond ONLY with JSON in this exact shape:
 {
   "cv": {
     "name": "...",
-    "title": "...",
+    "title": "a title built specifically around THIS posting's job title, not a generic multi-category tagline",
     "contact": "...",
-    "summary": "...",
+    "summary": "3-5 sentences that lead with how this candidate fits THIS specific posting, using the posting's own key terms wherever genuinely true",
     "experience": [
       {
         "role": "...", "employer": "...", "dates": "...",
