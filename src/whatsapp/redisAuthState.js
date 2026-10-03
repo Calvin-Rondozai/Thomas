@@ -68,4 +68,9 @@ async function useRedisAuthState() {
   };
 }
 
-module.exports = { useRedisAuthState };
+/** Wipes the stored WhatsApp session so the next connection starts fresh with a new QR code. */
+async function clearRedisAuthState() {
+  return upstash.delByPattern(`${PREFIX}*`);
+}
+
+module.exports = { useRedisAuthState, clearRedisAuthState };

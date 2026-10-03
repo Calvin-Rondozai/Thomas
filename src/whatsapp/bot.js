@@ -5,7 +5,7 @@ const qrcode = require('qrcode-terminal');
 const config = require('../config');
 const db = require('../db');
 const { handleIncomingMessage } = require('./handler');
-const { useRedisAuthState } = require('./redisAuthState');
+const { useRedisAuthState, clearRedisAuthState } = require('./redisAuthState');
 
 const BOT_NAME = 'HELLO C';
 const MAX_CERTIFICATES_PDF_BYTES = 8 * 1024 * 1024; // Upstash free tier caps a request at 10MB; base64 inflates size ~33%
@@ -55,8 +55,18 @@ async function startWhatsApp() {
       const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log('[whatsapp] connection closed, code:', statusCode, '- reconnecting:', shouldReconnect);
-      if (shouldReconnect) startWhatsApp().catch((err) => console.error('[whatsapp] reconnect failed', err));
-      else console.error('[whatsapp] logged out - clear the zim_job_bot:wa:* keys in Upstash and re-scan the QR code.');
+      if (shouldReconnect) {
+        startWhatsApp().catch((err) => console.error('[whatsapp] reconnect failed', err));
+      } else {
+        // The session was unlinked (from the phone, or by WhatsApp after a long time
+        // offline). The stored creds are now useless and would just get rejected again
+        // on every restart, so wipe them and start over to get a fresh QR code on /qr.
+        console.error('[whatsapp] logged out - clearing the stored session and generating a new QR code.');
+        clearRedisAuthState()
+          .then((n) => console.log(`[whatsapp] cleared ${n} session keys.`))
+          .then(() => startWhatsApp())
+          .catch((err) => console.error('[whatsapp] failed to reset session after logout', err));
+      }
     } else if (connection === 'open') {
       isConnected = true;
       latestQr = null;
@@ -68,7 +78,13 @@ async function startWhatsApp() {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue;
+      if (msg.key.fromMe) continue;
+      if (!msg.message) {
+        // Usually a message that couldn't be decrypted (e.g. stale Signal sessions after
+        // a long time offline) - log it instead of dropping it silently.
+        console.warn(`[whatsapp] received an empty/undecryptable message from ${msg.key.remoteJid} (stub: ${msg.messageStubType ?? 'none'}, params: ${JSON.stringify(msg.messageStubParameters || [])})`);
+        continue;
+      }
       const from = msg.key.remoteJid;
       console.log(`[whatsapp] incoming message from JID: ${from}`);
 

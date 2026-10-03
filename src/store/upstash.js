@@ -34,4 +34,21 @@ async function del(key) {
   await client().post(`/del/${encodeURIComponent(key)}`);
 }
 
-module.exports = { get, set, del };
+/** Deletes every key matching a glob pattern (e.g. "prefix:*"); returns how many were deleted. */
+async function delByPattern(pattern) {
+  const http = client();
+  let cursor = '0';
+  let deleted = 0;
+  do {
+    const res = await http.post('/', ['SCAN', cursor, 'MATCH', pattern, 'COUNT', 500]);
+    const [nextCursor, keys] = res.data.result;
+    cursor = String(nextCursor);
+    if (keys.length) {
+      await http.post('/', ['DEL', ...keys]);
+      deleted += keys.length;
+    }
+  } while (cursor !== '0');
+  return deleted;
+}
+
+module.exports = { get, set, del, delByPattern };
